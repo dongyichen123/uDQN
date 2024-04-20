@@ -31,7 +31,7 @@ class DQN:
                  epsilon,
                  target_update,
                  device,
-                 dqn_type='DoubleDQN'):
+                 dqn_type):
         self.action_dim = action_dim
         self.q_net = Qnet(state_dim, hidden_dim, self.action_dim).to(device)
         self.target_q_net = Qnet(state_dim, hidden_dim,
@@ -162,26 +162,43 @@ if __name__ == '__main__':
     np.random.seed(0)
     env.seed(0)
     torch.manual_seed(0)
-    replay_buffer = rl_utils.ReplayBuffer(buffer_size)
-    agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
-                target_update, device)
-    return_list, max_q_value_list = train_DQN(agent, env, num_episodes,
-                                              replay_buffer, minimal_size,
+    dqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
+    #dqn
+    dqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
+                target_update, device, "DQN")
+    dqn_return_list, dqn_max_q_value_list = train_DQN(dqn_agent, env, num_episodes,
+                                              dqn_replay_buffer, minimal_size,
                                               batch_size)
+    random.seed(0)
+    np.random.seed(0)
+    env.seed(0)
+    torch.manual_seed(0)
+    ddqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
+    #ddqn
+    ddqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
+                target_update, device, "DoubleDQN")
+    ddqn_return_list, ddqn_max_q_value_list = train_DQN(ddqn_agent, env, num_episodes,
+                                                      ddqn_replay_buffer, minimal_size,
+                                                      batch_size)
 
-    episodes_list = list(range(len(return_list)))
-    mv_return = rl_utils.moving_average(return_list, 5)
-    plt.plot(episodes_list, mv_return)
+    dqn_episodes_list = list(range(len(dqn_return_list)))
+    dqn_mv_return = rl_utils.moving_average(dqn_return_list, 5)
+
+    ddqn_episodes_list = list(range(len(ddqn_return_list)))
+    ddqn_mv_return = rl_utils.moving_average(ddqn_return_list, 5)
+
+    plt.plot(dqn_episodes_list, dqn_mv_return, ddqn_episodes_list, ddqn_mv_return)
     plt.xlabel('Episodes')
     plt.ylabel('Returns')
-    plt.title('DQN on {}'.format(env_name))
+    plt.title('DQN vs DoubleDQN on {}'.format(env_name))
     plt.show()
 
-    frames_list = list(range(len(max_q_value_list)))
-    plt.plot(frames_list, max_q_value_list)
+    dqn_frames_list = list(range(len(dqn_max_q_value_list)))
+    ddqn_frames_list = list(range(len(ddqn_max_q_value_list)))
+    plt.plot(dqn_frames_list, dqn_max_q_value_list, ddqn_frames_list, ddqn_max_q_value_list)
     plt.axhline(0, c='orange', ls='--')
     plt.axhline(10, c='red', ls='--')
     plt.xlabel('Frames')
     plt.ylabel('Q value')
-    plt.title('DQN on {}'.format(env_name))
+    plt.title('DQN vs DoubleDQN on {}'.format(env_name))
     plt.show()
