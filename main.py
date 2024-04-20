@@ -87,30 +87,24 @@ class DQN:
                 self.q_net.state_dict())  # 更新目标网络
         self.count += 1
 
-lr = 1e-2
-num_episodes = 200
+lr = 2e-3
+num_episodes = 500
 hidden_dim = 128
 gamma = 0.98
 epsilon = 0.01
-target_update = 50
-buffer_size = 5000
-minimal_size = 1000
+target_update = 10
+buffer_size = 10000
+minimal_size = 500
 batch_size = 64
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
     "cpu")
 
-env_name = 'Pendulum-v0'
+env_name = 'CartPole-v0'
 env = gym.make(env_name)
 state_dim = env.observation_space.shape[0]
-action_dim = 11  # 将连续动作分成11个离散动作
+action_dim = env.action_space.n
 
 
-def dis_to_con(discrete_action, env, action_dim):  # 离散动作转回连续的函数
-    action_lowbound = env.action_space.low[0]  # 连续动作的最小值
-    action_upbound = env.action_space.high[0]  # 连续动作的最大值
-    return action_lowbound + (discrete_action /
-                              (action_dim - 1)) * (action_upbound -
-                                                   action_lowbound)
 
 def train_DQN(agent, env, num_episodes, replay_buffer, minimal_size,
               batch_size):
@@ -129,9 +123,8 @@ def train_DQN(agent, env, num_episodes, replay_buffer, minimal_size,
                     max_q_value = agent.max_q_value(
                         state) * 0.005 + max_q_value * 0.995  # 平滑处理
                     max_q_value_list.append(max_q_value)  # 保存每个状态的最大Q值
-                    action_continuous = dis_to_con(action, env,
-                                                   agent.action_dim)
-                    next_state, reward, done, _ = env.step([action_continuous])
+
+                    next_state, reward, done, _ = env.step(action)
                     replay_buffer.add(state, action, reward, next_state, done)
                     state = next_state
                     episode_return += reward
@@ -196,8 +189,6 @@ if __name__ == '__main__':
     dqn_frames_list = list(range(len(dqn_max_q_value_list)))
     ddqn_frames_list = list(range(len(ddqn_max_q_value_list)))
     plt.plot(dqn_frames_list, dqn_max_q_value_list, ddqn_frames_list, ddqn_max_q_value_list)
-    plt.axhline(0, c='orange', ls='--')
-    plt.axhline(10, c='red', ls='--')
     plt.xlabel('Frames')
     plt.ylabel('Q value')
     plt.title('DQN vs DoubleDQN on {}'.format(env_name))
