@@ -158,47 +158,60 @@ def train_DQN(agent, env, num_episodes, replay_buffer, minimal_size,
     return return_list, max_q_value_list
 
 if __name__ == '__main__':
-    random.seed(0)
-    np.random.seed(0)
-    env.seed(0)
-    torch.manual_seed(0)
-    dqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
-    #dqn
-    dqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
+    dqn_return_list = []
+    dqn_max_q_value_list = []
+    ddqn_return_list = []
+    ddqn_max_q_value_list = []
+    dqn_mv_return = []
+    ddqn_mv_return = []
+
+    for i in range(6):
+        # dqn
+        random.seed(0)
+        np.random.seed(0)
+        env.seed(i)
+        torch.manual_seed(0)
+        dqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
+        dqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
                 target_update, device, "DQN")
-    dqn_return_list, dqn_max_q_value_list = train_DQN(dqn_agent, env, num_episodes,
-                                              dqn_replay_buffer, minimal_size,
-                                              batch_size)
-    random.seed(0)
-    np.random.seed(0)
-    env.seed(0)
-    torch.manual_seed(0)
-    ddqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
-    #ddqn
-    ddqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
+        dqn_return, dqn_q_value = train_DQN(dqn_agent, env, num_episodes, dqn_replay_buffer, minimal_size, batch_size)
+        dqn_return_list.append(dqn_return)
+        dqn_max_q_value_list.append(dqn_q_value)
+        dqn_mv_return.append(rl_utils.moving_average(dqn_return, 5))
+
+        # ddqn
+        random.seed(0)
+        np.random.seed(0)
+        env.seed(i)
+        torch.manual_seed(0)
+        ddqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
+        ddqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
                 target_update, device, "DoubleDQN")
-    ddqn_return_list, ddqn_max_q_value_list = train_DQN(ddqn_agent, env, num_episodes,
-                                                      ddqn_replay_buffer, minimal_size,
-                                                      batch_size)
+        ddqn_return, ddqn_q_value = train_DQN(ddqn_agent, env, num_episodes, ddqn_replay_buffer, minimal_size, batch_size)
+        ddqn_return_list.append(ddqn_return)
+        ddqn_max_q_value_list.append(ddqn_q_value)
+        ddqn_mv_return.append(rl_utils.moving_average(ddqn_return, 5))
 
-    dqn_episodes_list = list(range(len(dqn_return_list)))
-    dqn_mv_return = rl_utils.moving_average(dqn_return_list, 5)
 
-    ddqn_episodes_list = list(range(len(ddqn_return_list)))
-    ddqn_mv_return = rl_utils.moving_average(ddqn_return_list, 5)
+    dqn_episodes_list = list (range(len(dqn_return_list[0])))
+    ddqn_episodes_list = list(range(len(ddqn_return_list[0])))
+    mean_dqn_mv_return = np.mean(dqn_mv_return, axis=0)
+    mean_ddqn_mv_return = np.mean(ddqn_mv_return, axis=0)
 
-    plt.plot(dqn_episodes_list, dqn_mv_return, ddqn_episodes_list, ddqn_mv_return)
+    plt.plot(dqn_episodes_list, mean_dqn_mv_return, ddqn_episodes_list, mean_ddqn_mv_return)
     plt.xlabel('Episodes')
-    plt.ylabel('Returns')
+    plt.ylabel('Average Returns')
     plt.title('DQN vs DoubleDQN on {}'.format(env_name))
     plt.show()
 
-    dqn_frames_list = list(range(len(dqn_max_q_value_list)))
-    ddqn_frames_list = list(range(len(ddqn_max_q_value_list)))
-    plt.plot(dqn_frames_list, dqn_max_q_value_list, ddqn_frames_list, ddqn_max_q_value_list)
+    dqn_frames_list = list(range(len(dqn_max_q_value_list[0])))
+    ddqn_frames_list = list(range(len(ddqn_max_q_value_list[0])))
+    mean_dqn_max_q_value_list = np.mean(dqn_max_q_value_list, axis=0)
+    mean_ddqn_max_q_value_list = np.mean(ddqn_max_q_value_list, axis=0)
+    plt.plot(dqn_frames_list, mean_dqn_max_q_value_list, ddqn_frames_list, mean_ddqn_max_q_value_list)
     plt.axhline(0, c='orange', ls='--')
     plt.axhline(10, c='red', ls='--')
     plt.xlabel('Frames')
-    plt.ylabel('Q value')
+    plt.ylabel('Average Q value')
     plt.title('DQN vs DoubleDQN on {}'.format(env_name))
     plt.show()
