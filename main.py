@@ -34,10 +34,8 @@ class DQN:
                  dqn_type):
         self.action_dim = action_dim
         self.q_net = Qnet(state_dim, hidden_dim, self.action_dim).to(device)
-        self.target_q_net = Qnet(state_dim, hidden_dim,
-                                 self.action_dim).to(device)
-        self.optimizer = torch.optim.Adam(self.q_net.parameters(),
-                                          lr=learning_rate)
+        self.target_q_net = Qnet(state_dim, hidden_dim, self.action_dim).to(device)
+        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=learning_rate)
         self.gamma = gamma
         self.epsilon = epsilon
         self.target_update = target_update
@@ -74,9 +72,40 @@ class DQN:
         if self.dqn_type == 'DoubleDQN': # DQN与Double DQN的区别
             max_action = self.q_net(next_states).max(1)[1].view(-1, 1)
             max_next_q_values = self.target_q_net(next_states).gather(1, max_action)
-        else: # DQN的情况
+            q_targets = rewards + self.gamma * max_next_q_values * (1 - dones)  # TD误差目标
+        elif self.dqn_type == 'DQN': # DQN的情况
             max_next_q_values = self.target_q_net(next_states).max(1)[0].view(-1, 1)
-        q_targets = rewards + self.gamma * max_next_q_values * (1 - dones)  # TD误差目标
+            q_targets = rewards + self.gamma * max_next_q_values * (1 - dones)  # TD误差目标
+
+        elif self.dqn_type == 'u2DQN':
+            max_next_q_values = self.target_q_net(next_states).max(1)[0].view(-1, 1)
+
+            max_action = self.target_q_net(next_states).max(1)[1].view(-1, 1)
+
+            max_next_q_values_1 = self.target_q_net(next_states).gather(1, max_action)
+            max_next_q_values_2 = self.q_net(next_states).gather(1, max_action)
+            u = abs(max_next_q_values_1 - max_next_q_values_2)
+            q_targets = rewards + self.gamma * (max_next_q_values - 0.5 * u) * (1 - dones)
+
+
+        elif self.dqn_type == 'u1DQN':
+            max_next_q_values = self.target_q_net(next_states).max(1)[0].view(-1, 1)
+            next_state_q_values = self.target_q_net(next_states)
+            # 找到最大值及其索引
+            max_action_idx = next_state_q_values.max(dim=1)[1]
+
+            # 将最大值对应的位置设置为负无穷，排除这个最大值
+            for j in range(batch_size):
+                next_state_q_values[j, max_action_idx[j]] = float('-inf')
+
+            # 找到排除最大值后的最大值，即为第二大的 Q 值
+            scd_max_next_q_values = next_state_q_values.max(dim=1)[0].view(-1, 1)
+            u = max_next_q_values - scd_max_next_q_values
+
+            q_targets = rewards + self.gamma * (max_next_q_values - 0.5*u) * (1 - dones)  # TD误差目标
+            for j in range(batch_size):
+                next_state_q_values[j, max_action_idx[j]] = max_next_q_values[j]
+
         dqn_loss = torch.mean(F.mse_loss(q_values, q_targets))  # 均方误差损失函数
         self.optimizer.zero_grad()  # PyTorch中默认梯度会累积,这里需要显式将梯度置为0
         dqn_loss.backward()  # 反向传播更新参数
@@ -102,7 +131,7 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
 env_name = 'Pendulum-v0'
 env = gym.make(env_name)
 state_dim = env.observation_space.shape[0]
-action_dim = 11  # 将连续动作分成11个离散动作
+action_dim = 25 # 将连续动作分成11个离散动作
 
 
 def dis_to_con(discrete_action, env, action_dim):  # 离散动作转回连续的函数
@@ -113,7 +142,7 @@ def dis_to_con(discrete_action, env, action_dim):  # 离散动作转回连续的
                                                    action_lowbound)
 
 def train_DQN(agent, env, num_episodes, replay_buffer, minimal_size,
-              batch_size):
+              batch_size,seed):
     return_list = []
     max_q_value_list = []
     max_q_value = 0
@@ -155,6 +184,9 @@ def train_DQN(agent, env, num_episodes, replay_buffer, minimal_size,
                         '%.3f' % np.mean(return_list[-10:])
                     })
                 pbar.update(1)
+    file_name = f"{agent.dqn_type}_{env_name}_{seed}"
+    np.save(f"./data/test/return/{file_name}", return_list)
+    np.save(f"./data/test/q_value/{file_name}", max_q_value_list)
     return return_list, max_q_value_list
 
 if __name__ == '__main__':
@@ -164,54 +196,99 @@ if __name__ == '__main__':
     ddqn_max_q_value_list = []
     dqn_mv_return = []
     ddqn_mv_return = []
+    udqn_return_list = []
+    udqn_mv_return = []
+    udqn_max_q_value_list = []
 
     for i in range(6):
-        # dqn
-        random.seed(0)
-        np.random.seed(0)
+        # uDQN
+        random.seed(i)
+        np.random.seed(i)
         env.seed(i)
-        torch.manual_seed(0)
+        torch.manual_seed(i)
+        udqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
+        udqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
+                         target_update, device, "u1DQN")
+        udqn_return, udqn_q_value = train_DQN(udqn_agent, env, num_episodes, udqn_replay_buffer, minimal_size,
+                                              batch_size, i)
+        udqn_return_list.append(udqn_return)
+        udqn_max_q_value_list.append(udqn_q_value)
+        udqn_mv_return.append(rl_utils.moving_average(udqn_return, 5))
+        # dqn
+
+        random.seed(i)
+        np.random.seed(i)
+        env.seed(i)
+        torch.manual_seed(i)
         dqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
         dqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
                 target_update, device, "DQN")
-        dqn_return, dqn_q_value = train_DQN(dqn_agent, env, num_episodes, dqn_replay_buffer, minimal_size, batch_size)
+        dqn_return, dqn_q_value = train_DQN(dqn_agent, env, num_episodes, dqn_replay_buffer, minimal_size, batch_size, i)
         dqn_return_list.append(dqn_return)
         dqn_max_q_value_list.append(dqn_q_value)
         dqn_mv_return.append(rl_utils.moving_average(dqn_return, 5))
 
         # ddqn
-        random.seed(0)
-        np.random.seed(0)
+        random.seed(i)
+        np.random.seed(i)
         env.seed(i)
-        torch.manual_seed(0)
+        torch.manual_seed(i)
         ddqn_replay_buffer = rl_utils.ReplayBuffer(buffer_size)
         ddqn_agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
                 target_update, device, "DoubleDQN")
-        ddqn_return, ddqn_q_value = train_DQN(ddqn_agent, env, num_episodes, ddqn_replay_buffer, minimal_size, batch_size)
+        ddqn_return, ddqn_q_value = train_DQN(ddqn_agent, env, num_episodes, ddqn_replay_buffer, minimal_size, batch_size, i)
         ddqn_return_list.append(ddqn_return)
         ddqn_max_q_value_list.append(ddqn_q_value)
         ddqn_mv_return.append(rl_utils.moving_average(ddqn_return, 5))
 
 
-    dqn_episodes_list = list (range(len(dqn_return_list[0])))
+
+
+    dqn_episodes_list = list(range(len(dqn_return_list[0])))
     ddqn_episodes_list = list(range(len(ddqn_return_list[0])))
+    
     mean_dqn_mv_return = np.mean(dqn_mv_return, axis=0)
     mean_ddqn_mv_return = np.mean(ddqn_mv_return, axis=0)
 
-    plt.plot(dqn_episodes_list, mean_dqn_mv_return, ddqn_episodes_list, mean_ddqn_mv_return)
+
+
+    udqn_episode_list = list(range(len(udqn_return_list[0])))
+    mean_udqn_mv_return = np.mean(udqn_mv_return, axis=0)
+
+
+    plt.plot(dqn_episodes_list, mean_dqn_mv_return, label='DQN')
+    plt.plot(ddqn_episodes_list, mean_ddqn_mv_return, label='doubleDQN')
+
+
+    plt.plot(udqn_episode_list, mean_udqn_mv_return, label='uDQN')
     plt.xlabel('Episodes')
     plt.ylabel('Average Returns')
-    plt.title('DQN vs DoubleDQN on {}'.format(env_name))
+    plt.title('DQN vs DoubleDQN vs uDQN on {}'.format(env_name))
+    plt.legend(loc='upper left')
     plt.show()
 
     dqn_frames_list = list(range(len(dqn_max_q_value_list[0])))
     ddqn_frames_list = list(range(len(ddqn_max_q_value_list[0])))
+    
     mean_dqn_max_q_value_list = np.mean(dqn_max_q_value_list, axis=0)
     mean_ddqn_max_q_value_list = np.mean(ddqn_max_q_value_list, axis=0)
-    plt.plot(dqn_frames_list, mean_dqn_max_q_value_list, ddqn_frames_list, mean_ddqn_max_q_value_list)
+
+
+    udqn_frames_list = list(range(len(udqn_max_q_value_list[0])))
+    mean_udqn_max_q_value_list = np.mean(udqn_max_q_value_list, axis=0)
+
+
+
+    plt.plot(dqn_frames_list, mean_dqn_max_q_value_list, label='DQN')
+    plt.plot(ddqn_frames_list, mean_ddqn_max_q_value_list, label='doubleDQN')
+
+
+
+    plt.plot(udqn_frames_list, mean_udqn_max_q_value_list, label='uDQN')
     plt.axhline(0, c='orange', ls='--')
     plt.axhline(10, c='red', ls='--')
     plt.xlabel('Frames')
     plt.ylabel('Average Q value')
-    plt.title('DQN vs DoubleDQN on {}'.format(env_name))
+    plt.title('DQN vs DoubleDQN vs uDQN on {}'.format(env_name))
+    plt.legend(loc='upper left')
     plt.show()
